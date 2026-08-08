@@ -1,0 +1,17 @@
+[Unit]
+Description=Huur Scraper Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pi/huur_scraper
+ExecStart=/home/pi/huur_scraper/.venv/bin/python -m src.main --once
+EnvironmentFile=/home/pi/huur_scraper/.env
+StandardOutput=journal
+StandardError=journal
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

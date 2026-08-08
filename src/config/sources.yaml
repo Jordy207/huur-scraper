@@ -1,0 +1,66 @@
+sources:
+  - name: thehaguerealestate
+    mode: SCRAPE
+    min_interval_seconds: 900
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: wobeco
+    mode: SCRAPE
+    min_interval_seconds: 900
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: nrw_wonen
+    mode: SCRAPE
+    min_interval_seconds: 1200
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: interhouse
+    mode: SCRAPE
+    min_interval_seconds: 1200
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: rotsvast
+    mode: SCRAPE
+    min_interval_seconds: 1200
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: verra
+    mode: SCRAPE
+    min_interval_seconds: 1200
+    max_retries: 2
+    auto_disable_on_block: true
+  - name: funda
+    mode: SCRAPE
+    min_interval_seconds: 2400
+    max_retries: 1
+    auto_disable_on_block: true
+  - name: woonnet_haaglanden
+    mode: ALERT_INGEST
+    min_interval_seconds: 3600
+    max_retries: 0
+    auto_disable_on_block: true
+  - name: pararius
+    mode: ALERT_INGEST
+    min_interval_seconds: 3600
+    max_retries: 0
+    auto_disable_on_block: true
+  - name: huurwoningen
+    mode: ALERT_INGEST
+    min_interval_seconds: 3600
+    max_retries: 0
+    auto_disable_on_block: true
+  - name: vesteda
+    mode: ALERT_INGEST
+    min_interval_seconds: 3600
+    max_retries: 0
+    auto_disable_on_block: true
+  - name: thehaguerealestate_expat
+    mode: SCRAPE
+    min_interval_seconds: 1800
+    max_retries: 1
+    auto_disable_on_block: true
+  - name: interhouse_secondary
+    mode: ALERT_INGEST
+    min_interval_seconds: 3600
+    max_retries: 0
+    auto_disable_on_block: true
