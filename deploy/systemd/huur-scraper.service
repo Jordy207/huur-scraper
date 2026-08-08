@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/pi/huur-scraper
-ExecStart=/home/pi/huur-scraper/.venv/bin/python -m src.main --once
-EnvironmentFile=/home/pi/huur-scraper/.env
+WorkingDirectory=/home/jordy207/huur-scraper
+ExecStart=/home/jordy207/huur-scraper/.venv/bin/python -m src.main --once
+EnvironmentFile=/home/jordy207/huur-scraper/.env
 StandardOutput=journal
 StandardError=journal
 User=pi
