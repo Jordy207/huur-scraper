@@ -1,13 +1,14 @@
+
+
 from __future__ import annotations
 
 from src.models.listing import Listing
 from src.scrapers.base import BaseScraper
 
 
-class NRWonenScraper(BaseScraper):
-    source_name = "nrw_wonen"
-    api_url = "https://admin.nrw-wonen.nl/api/v1/aanbod"
-    detail_url_template = "https://www.nrw-wonen.nl/aanbod/huis/{listing_id}/"
+class VerraScraper(BaseScraper):
+    source_name = "verra"
+    api_url = "https://www.verra.nl/nl/realtime-listings/consumer"
 
     def search(self, max_retries: int = 2) -> list[Listing]:
         payload = self.fetch_json(self.api_url, max_retries=max_retries)
@@ -20,47 +21,48 @@ class NRWonenScraper(BaseScraper):
             if not isinstance(item, dict):
                 continue
 
-            listing_id_raw = item.get("id")
+            listing_id_raw = item.get("_id")
             if listing_id_raw is None:
+                continue
+            if item.get("isRentals") is not True:
                 continue
 
             listing_id = str(listing_id_raw)
-            url = self.detail_url_template.format(listing_id=listing_id)
+            url = f"https://www.verra.nl{item.get('url')}"
 
-            title = item.get("assetadtitle") or f"NRW Wonen listing {listing_id}"
-            city = item.get("assetcity")
+            title = f"Verra listing {listing_id}"
+            city = item.get("city")
             city = city.strip() if isinstance(city, str) else None
 
             status = item.get("status")
             listing_status = status.strip().lower() if isinstance(status, str) and status.strip() else "available"
             is_available = self.map_status_to_available(status, default=True)
 
-            available_from = item.get("assetavailabledate")
-            if not isinstance(available_from, str) or not available_from.strip():
-                available_from = None
+       
+            available_from = None
 
             raw_features = {
-                "status": str(item.get("status") or ""),
-                "postal_code": str(item.get("assetpostalcode") or ""),
-                "street": str(item.get("assetstreet") or ""),
-                "house_number": f"{item.get('assetnumber') or ''}{item.get('assetnumberadd') or ''}",
-                "asset_type": str(item.get("assettype") or ""),
-                "furniture": str(item.get("assetfurniture") or ""),
+                "status": status if isinstance(status, str) else "",
+                "postal_code": str(item.get("zipcode", "")),
+                "street": " ".join(item.get("address", "").split(" ")[:-1]),
+                "house_number": str(item.get("address", "").split(" ")[-1]),
+                "asset_type": str(item.get("mainType") or ""),
+                "furniture": "",
             }
 
-            rent_price = item.get("assetrent")
+            rent_price = item.get("rentalsPrice")
             if not isinstance(rent_price, int):
                 rent_price = self.parse_int(str(rent_price) if rent_price is not None else None)
 
-            living_area = item.get("assetsurface")
+            living_area = item.get("livingSurface")
             if not isinstance(living_area, int):
                 living_area = self.parse_int(str(living_area) if living_area is not None else None)
 
-            total_rooms = item.get("assettotalrooms")
+            total_rooms = item.get("rooms")
             if not isinstance(total_rooms, int):
                 total_rooms = self.parse_int(str(total_rooms) if total_rooms is not None else None)
 
-            bedrooms = item.get("assetnumberbedrooms")
+            bedrooms = item.get("bedrooms")
             if not isinstance(bedrooms, int):
                 bedrooms = self.parse_int(str(bedrooms) if bedrooms is not None else None)
 

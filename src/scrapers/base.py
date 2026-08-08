@@ -4,7 +4,7 @@ import logging
 import random
 import re
 import time
-from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -14,13 +14,6 @@ from src.models.listing import Listing
 
 _BLOCK_STATUSES = {403, 429}
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class FetchResult:
-    url: str
-    status_code: int
-    text: str
 
 
 class SourceBlockedError(Exception):
@@ -36,24 +29,56 @@ class BaseScraper:
     def search(self) -> list[Listing]:
         raise NotImplementedError
 
-    def fetch_with_backoff(self, url: str, max_retries: int = 2) -> FetchResult:
-        headers = {"User-Agent": self.settings.user_agent}
+    def default_headers(self, headers: dict[str, str] | None = None) -> dict[str, str]:
+        merged = {
+            "User-Agent": self.settings.user_agent,
+            "Accept": "*/*",
+        }
+        if headers:
+            merged.update(headers)
+        return merged
+
+    def request_with_backoff(
+        self,
+        method: str,
+        url: str,
+        *,
+        max_retries: int = 2,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json_payload: Any | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        request_headers = self.default_headers(headers)
         timeout = self.settings.request_timeout_seconds
         base_wait = 2
+        normalized_method = method.upper()
 
         for attempt in range(max_retries + 1):
             self.jitter_sleep(0.8, 1.8)
             logger.info(
-                "Fetching source=%s url=%s attempt=%d/%d",
+                "Request source=%s method=%s url=%s attempt=%d/%d",
                 self.source_name,
+                normalized_method,
                 url,
                 attempt + 1,
                 max_retries + 1,
             )
-            response = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+
+            response = httpx.request(
+                method=normalized_method,
+                url=url,
+                headers=request_headers,
+                params=params,
+                json=json_payload,
+                data=form_data,
+                timeout=timeout,
+                follow_redirects=True,
+            )
             logger.info(
-                "Response source=%s status=%s url=%s",
+                "Response source=%s method=%s status=%s url=%s",
                 self.source_name,
+                normalized_method,
                 response.status_code,
                 url,
             )
@@ -63,8 +88,9 @@ class BaseScraper:
                     raise SourceBlockedError(f"Blocked with status {response.status_code} for {self.source_name}")
                 wait_seconds = base_wait * (attempt + 1)
                 logger.warning(
-                    "Blocked response source=%s status=%s; backing off for %ss",
+                    "Blocked response source=%s method=%s status=%s; backing off for %ss",
                     self.source_name,
+                    normalized_method,
                     response.status_code,
                     wait_seconds,
                 )
@@ -74,17 +100,44 @@ class BaseScraper:
             if response.status_code >= 500 and attempt < max_retries:
                 wait_seconds = base_wait * (attempt + 1)
                 logger.warning(
-                    "Server error source=%s status=%s; retrying in %ss",
+                    "Server error source=%s method=%s status=%s; retrying in %ss",
                     self.source_name,
+                    normalized_method,
                     response.status_code,
                     wait_seconds,
                 )
                 time.sleep(wait_seconds)
                 continue
 
-            return FetchResult(url=url, status_code=response.status_code, text=response.text)
+            return response
 
-        raise RuntimeError(f"Failed to fetch {url}")
+        raise RuntimeError(f"Failed to request {url}")
+
+    def fetch_json(
+        self,
+        url: str,
+        *,
+        max_retries: int = 2,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        method: str = "GET",
+        json_payload: Any | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> Any:
+        merged_headers = self.default_headers(headers)
+        merged_headers.setdefault("Accept", "application/json")
+
+        response = self.request_with_backoff(
+            method=method,
+            url=url,
+            max_retries=max_retries,
+            headers=merged_headers,
+            params=params,
+            json_payload=json_payload,
+            form_data=form_data,
+        )
+        response.raise_for_status()
+        return response.json()
 
     @staticmethod
     def jitter_sleep(min_seconds: float, max_seconds: float) -> None:
@@ -98,3 +151,50 @@ class BaseScraper:
         if not cleaned:
             return None
         return int(cleaned)
+
+    @staticmethod
+    def map_status_to_available(status: object, default: bool = True) -> bool:
+        if status is None:
+            return default
+
+        if isinstance(status, bool):
+            return status
+
+        if isinstance(status, (int, float)):
+            return status > 0
+
+        text = str(status).strip().lower()
+        if not text:
+            return default
+
+        unavailable_tokens = {
+            "unavailable",
+            "not available",
+            "rented",
+            "verhuurd",
+            "onder optie",
+            "option",
+            "sold",
+            "inactive",
+            "off market",
+            "niet beschikbaar",
+        }
+        available_tokens = {
+            "available",
+            "te huur",
+            "for rent",
+            "actief",
+            "active",
+            "beschikbaar",
+            "open",
+            "1",
+            "true",
+            "yes",
+        }
+
+        if text in unavailable_tokens:
+            return False
+        if text in available_tokens:
+            return True
+
+        return default

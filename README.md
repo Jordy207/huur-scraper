@@ -24,6 +24,19 @@ Compliance-first rental listing aggregator for Delft/The Hague area.
 ## Raspberry Pi setup
 - Follow [docs/install_pi.md](docs/install_pi.md)
 
+## Add more sources
+- Follow [docs/source_onboarding.md](docs/source_onboarding.md)
+
+## View current listings
+- Show recent listings from SQLite:
+   - `./.venv/bin/python -m src.main --listings`
+- Show more rows:
+   - `./.venv/bin/python -m src.main --listings --limit 100`
+
+## Clean old non-matches
+- Remove previously stored rows that no longer match your current profile:
+   - `./.venv/bin/python -m src.main --prune-non-matches`
+
 ## Current MVP sources
 - `thehaguerealestate`
 - `wobeco`

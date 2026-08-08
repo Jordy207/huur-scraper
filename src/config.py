@@ -19,6 +19,7 @@ class Settings:
     min_size_m2: int
     preferred_bedrooms: int
     allow_close_match: bool
+    store_only_matches: bool
     allowed_cities: list[str]
     log_level: str
     log_file_path: Path
@@ -33,7 +34,16 @@ def _parse_bool(value: str, default: bool) -> bool:
 
 def _parse_cities(value: str) -> list[str]:
     if not value:
-        return ["Den Haag", "Delft"]
+        return [
+            "Den Haag",
+            "Delft",
+            "Rijswijk",
+            "Voorburg",
+            "Leidschendam",
+            "Nootdorp",
+            "Ypenburg",
+            "'s-Gravenhage",
+        ]
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
@@ -52,7 +62,13 @@ def load_settings() -> Settings:
         min_size_m2=int(os.getenv("MIN_SIZE_M2", "40")),
         preferred_bedrooms=int(os.getenv("PREFERRED_BEDROOMS", "2")),
         allow_close_match=_parse_bool(os.getenv("ALLOW_CLOSE_MATCH", "true"), True),
-        allowed_cities=_parse_cities(os.getenv("ALLOWED_CITIES", "Den Haag,Delft")),
+        store_only_matches=_parse_bool(os.getenv("STORE_ONLY_MATCHES", "true"), True),
+        allowed_cities=_parse_cities(
+            os.getenv(
+                "ALLOWED_CITIES",
+                "Den Haag,Delft,Rijswijk,Voorburg,Leidschendam,Nootdorp,Ypenburg,'s-Gravenhage",
+            )
+        ),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         log_file_path=Path(os.getenv("LOG_FILE_PATH", "logs/huur_scraper.log")),
         log_to_console=_parse_bool(os.getenv("LOG_TO_CONSOLE", "true"), True),

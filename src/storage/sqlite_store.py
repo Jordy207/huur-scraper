@@ -47,6 +47,7 @@ class SQLiteStore:
                     bedrooms INTEGER,
                     available_from TEXT,
                     raw_features TEXT NOT NULL,
+                    is_available INTEGER NOT NULL DEFAULT 1,
                     first_seen_at TEXT,
                     last_seen_at TEXT,
                     last_changed_at TEXT,
@@ -54,6 +55,16 @@ class SQLiteStore:
                 )
                 """
             )
+
+            # Migrate older DBs that were created before availability tracking.
+            existing_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(listings)").fetchall()
+            }
+            if "is_available" not in existing_columns:
+                connection.execute(
+                    "ALTER TABLE listings ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1"
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS source_runs (
@@ -82,8 +93,8 @@ class SQLiteStore:
                     INSERT INTO listings (
                         dedupe_key, source_site, source_listing_id, source_url, title, city,
                         rent_price, living_area_m2, rooms_total, bedrooms, available_from,
-                        raw_features, first_seen_at, last_seen_at, last_changed_at, listing_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        raw_features, is_available, first_seen_at, last_seen_at, last_changed_at, listing_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -98,6 +109,7 @@ class SQLiteStore:
                         listing.bedrooms,
                         listing.available_from,
                         raw_features,
+                        1 if listing.is_available else 0,
                         listing.first_seen_at,
                         listing.last_seen_at,
                         listing.last_changed_at,
@@ -110,6 +122,7 @@ class SQLiteStore:
                 current["title"] != listing.title
                 or current["rent_price"] != listing.rent_price
                 or current["living_area_m2"] != listing.living_area_m2
+                or current["is_available"] != (1 if listing.is_available else 0)
                 or current["listing_status"] != listing.listing_status
             )
 
@@ -118,7 +131,7 @@ class SQLiteStore:
                 UPDATE listings
                 SET title = ?, source_url = ?, city = ?, rent_price = ?, living_area_m2 = ?,
                     rooms_total = ?, bedrooms = ?, available_from = ?, raw_features = ?,
-                    last_seen_at = ?, last_changed_at = ?, listing_status = ?
+                    is_available = ?, last_seen_at = ?, last_changed_at = ?, listing_status = ?
                 WHERE dedupe_key = ?
                 """,
                 (
@@ -131,6 +144,7 @@ class SQLiteStore:
                     listing.bedrooms,
                     listing.available_from,
                     raw_features,
+                    1 if listing.is_available else 0,
                     listing.last_seen_at,
                     listing.last_seen_at if changed else current["last_changed_at"],
                     listing.listing_status,
@@ -151,3 +165,60 @@ class SQLiteStore:
                 "INSERT INTO source_runs (source_site, run_at, status, details) VALUES (?, ?, ?, ?)",
                 (source_site, run_at, status, details),
             )
+
+    def get_recent_listings(self, limit: int = 25) -> list[sqlite3.Row]:
+        safe_limit = max(1, min(limit, 500))
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    source_site,
+                    title,
+                    city,
+                    rent_price,
+                    living_area_m2,
+                    bedrooms,
+                    source_url,
+                    is_available,
+                    first_seen_at,
+                    last_seen_at,
+                    listing_status
+                FROM listings
+                ORDER BY COALESCE(last_seen_at, first_seen_at) DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+
+    def get_all_listings_for_prune(self) -> list[sqlite3.Row]:
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    dedupe_key,
+                    source_site,
+                    source_listing_id,
+                    source_url,
+                    title,
+                    city,
+                    rent_price,
+                    living_area_m2,
+                    rooms_total,
+                    bedrooms,
+                    available_from,
+                    is_available,
+                    listing_status
+                FROM listings
+                """
+            ).fetchall()
+
+    def delete_listings_by_keys(self, dedupe_keys: list[str]) -> int:
+        if not dedupe_keys:
+            return 0
+
+        deleted = 0
+        with self._connect() as connection:
+            for key in dedupe_keys:
+                cursor = connection.execute("DELETE FROM listings WHERE dedupe_key = ?", (key,))
+                deleted += cursor.rowcount
+        return deleted

@@ -5,22 +5,113 @@ import logging
 from pathlib import Path
 
 from src.config import load_settings
+from src.filtering.rules import evaluate_listing
 from src.logging_setup import configure_logging
+from src.models.listing import Listing
 from src.scrapers.runner import run_all_sources
 from src.scrapers.sites.nrw_wonen import NRWonenScraper
+from src.scrapers.sites.verra import VerraScraper
+from src.scrapers.sites.vesteda import VestedaScraper
+from src.storage.sqlite_store import SQLiteStore
 from src.scrapers.sites.thehaguerealestate import TheHagueRealEstateScraper
 from src.scrapers.sites.wobeco import WobecoScraper
-from src.storage.sqlite_store import SQLiteStore
+
+
+def _fmt(value: object) -> str:
+    return "-" if value in (None, "") else str(value)
+
+
+def print_listings(store: SQLiteStore, limit: int) -> None:
+    rows = store.get_recent_listings(limit=limit)
+    if not rows:
+        print("No listings found in database yet.")
+        return
+
+    headers = ["Source", "Avail", "Price", "m2", "Beds", "City", "Title", "Seen", "URL"]
+    records = []
+    for row in rows:
+        records.append(
+            [
+                _fmt(row["source_site"]),
+                _fmt("yes" if row["is_available"] else "no"),
+                _fmt(row["rent_price"]),
+                _fmt(row["living_area_m2"]),
+                _fmt(row["bedrooms"]),
+                _fmt(row["city"]),
+                _fmt(row["title"]),
+                _fmt(row["last_seen_at"]),
+                _fmt(row["source_url"]),
+            ]
+        )
+
+    column_widths = [len(h) for h in headers]
+    for record in records:
+        for index, value in enumerate(record):
+            column_widths[index] = min(max(column_widths[index], len(value)), 72)
+
+    def fit(text: str, width: int) -> str:
+        if len(text) <= width:
+            return text.ljust(width)
+        return (text[: max(0, width - 3)] + "...").ljust(width)
+
+    print(" | ".join(fit(headers[i], column_widths[i]) for i in range(len(headers))))
+    print("-+-".join("-" * column_widths[i] for i in range(len(headers))))
+    for record in records:
+        print(" | ".join(fit(record[i], column_widths[i]) for i in range(len(record))))
+
+
+def prune_non_matching_listings(store: SQLiteStore, settings) -> tuple[int, int]:
+    rows = store.get_all_listings_for_prune()
+    delete_keys: list[str] = []
+
+    for row in rows:
+        listing = Listing(
+            source_site=row["source_site"],
+            source_listing_id=row["source_listing_id"],
+            source_url=row["source_url"],
+            title=row["title"],
+            city=row["city"],
+            rent_price=row["rent_price"],
+            living_area_m2=row["living_area_m2"],
+            rooms_total=row["rooms_total"],
+            bedrooms=row["bedrooms"],
+            available_from=row["available_from"],
+            raw_features={},
+            is_available=bool(row["is_available"]),
+            listing_status=row["listing_status"],
+        )
+        match = evaluate_listing(listing, settings)
+        if not (match.is_hard_match or match.is_close_match):
+            delete_keys.append(row["dedupe_key"])
+
+    deleted = store.delete_listings_by_keys(delete_keys)
+    return deleted, len(rows)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run rental source scraping")
     parser.add_argument("--once", action="store_true", help="Run one scraping cycle")
     parser.add_argument(
+        "--listings",
+        action="store_true",
+        help="Show recent listings stored in SQLite and exit",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Number of rows for --listings (default: 25)",
+    )
+    parser.add_argument(
         "--sources",
         type=str,
         default="",
         help="Comma-separated source names (optional)",
+    )
+    parser.add_argument(
+        "--prune-non-matches",
+        action="store_true",
+        help="Delete existing DB listings that do not match current profile",
     )
     return parser.parse_args()
 
@@ -34,10 +125,23 @@ def main() -> None:
 
     store = SQLiteStore(settings.database_path)
 
+    if args.listings:
+        print_listings(store=store, limit=args.limit)
+        logger.info("Printed recent listings (limit=%s)", args.limit)
+        return
+
+    if args.prune_non_matches:
+        deleted, total = prune_non_matching_listings(store=store, settings=settings)
+        print(f"Prune complete. Deleted {deleted} non-matching rows out of {total} total rows.")
+        logger.info("Pruned non-matches deleted=%d total_before=%d", deleted, total)
+        return
+
     source_factories = {
+        "nrw_wonen": NRWonenScraper,
         "thehaguerealestate": TheHagueRealEstateScraper,
         "wobeco": WobecoScraper,
-        "nrw_wonen": NRWonenScraper,
+        "verra": VerraScraper,
+        "vesteda": VestedaScraper,
     }
 
     selected_sources = (

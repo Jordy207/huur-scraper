@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+import datetime as dt
 from pathlib import Path
 
 from src.config import Settings
@@ -41,7 +41,7 @@ def run_all_sources(
             logger.info("Skipping source=%s due to policy mode=%s", policy.name, policy.mode.value)
             store.write_source_run(
                 source_site=policy.name,
-                run_at=datetime.utcnow().isoformat(),
+                run_at=dt.datetime.now(tz=dt.timezone.utc).isoformat(),
                 status="skipped",
                 details=f"mode={policy.mode.value}",
             )
@@ -52,7 +52,7 @@ def run_all_sources(
             logger.warning("No adapter for source=%s", policy.name)
             store.write_source_run(
                 source_site=policy.name,
-                run_at=datetime.utcnow().isoformat(),
+                run_at=dt.datetime.now(tz=dt.timezone.utc).isoformat(),
                 status="error",
                 details="no scraper adapter",
             )
@@ -65,17 +65,26 @@ def run_all_sources(
             health_tracker.mark_success(policy.name)
             logger.info("Source=%s returned %d listings", policy.name, len(listings))
 
+            evaluated_count = 0
+            skipped_non_match_count = 0
             changed_count = 0
             alerted_count = 0
 
             for listing in listings:
+                evaluated_count += 1
+                match = evaluate_listing(listing, settings)
+                is_match = match.is_hard_match or match.is_close_match
+
+                if settings.store_only_matches and not is_match:
+                    skipped_non_match_count += 1
+                    continue
+
                 upsert = store.upsert_listing(listing)
                 if not upsert.changed:
                     continue
                 changed_count += 1
 
-                match = evaluate_listing(listing, settings)
-                if not (match.is_hard_match or match.is_close_match):
+                if not is_match:
                     continue
 
                 message = format_listing_message(listing, match)
@@ -88,12 +97,23 @@ def run_all_sources(
                 changed_count,
                 alerted_count,
             )
+            logger.info(
+                "Source=%s evaluated=%d skipped_non_match=%d store_only_matches=%s",
+                policy.name,
+                evaluated_count,
+                skipped_non_match_count,
+                settings.store_only_matches,
+            )
 
             store.write_source_run(
                 source_site=policy.name,
-                run_at=datetime.utcnow().isoformat(),
+                run_at=dt.datetime.now(tz=dt.timezone.utc).isoformat(),
                 status="ok",
-                details=f"listings={len(listings)},changed={changed_count},alerted={alerted_count}",
+                details=(
+                    f"listings={len(listings)},evaluated={evaluated_count},"
+                    f"skipped_non_match={skipped_non_match_count},changed={changed_count},"
+                    f"alerted={alerted_count},store_only_matches={settings.store_only_matches}"
+                ),
             )
 
         except SourceBlockedError as error:
@@ -105,7 +125,7 @@ def run_all_sources(
 
             store.write_source_run(
                 source_site=policy.name,
-                run_at=datetime.utcnow().isoformat(),
+                run_at=dt.datetime.now(tz=dt.timezone.utc).isoformat(),
                 status="blocked",
                 details=details,
             )
@@ -117,7 +137,7 @@ def run_all_sources(
             logger.exception("Source failed source=%s", policy.name)
             store.write_source_run(
                 source_site=policy.name,
-                run_at=datetime.utcnow().isoformat(),
+                run_at=dt.datetime.now(tz=dt.timezone.utc).isoformat(),
                 status="error",
                 details=str(error),
             )

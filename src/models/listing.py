@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime
+import datetime as dt
 
 
 @dataclass
@@ -17,6 +17,7 @@ class Listing:
     bedrooms: int | None
     available_from: str | None
     raw_features: dict[str, str]
+    is_available: bool = True
     first_seen_at: str | None = None
     last_seen_at: str | None = None
     last_changed_at: str | None = None
@@ -29,7 +30,7 @@ class Listing:
         return f"{self.source_site}:{self.source_listing_id}:{city}:{price}:{area}"
 
     def stamp_seen(self) -> None:
-        now = datetime.utcnow().isoformat()
+        now = dt.datetime.now(tz=dt.timezone.utc).isoformat()
         if not self.first_seen_at:
             self.first_seen_at = now
         self.last_seen_at = now
