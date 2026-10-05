@@ -65,16 +65,30 @@ class BaseScraper:
                 max_retries + 1,
             )
 
-            response = httpx.request(
-                method=normalized_method,
-                url=url,
-                headers=request_headers,
-                params=params,
-                json=json_payload,
-                data=form_data,
-                timeout=timeout,
-                follow_redirects=True,
-            )
+            try:
+                response = httpx.request(
+                    method=normalized_method,
+                    url=url,
+                    headers=request_headers,
+                    params=params,
+                    json=json_payload,
+                    data=form_data,
+                    timeout=timeout,
+                    follow_redirects=True,
+                )
+            except httpx.TransportError as exc:
+                if attempt >= max_retries:
+                    raise
+                wait_seconds = base_wait * (attempt + 1)
+                logger.warning(
+                    "Transport error source=%s method=%s error=%s; retrying in %ss",
+                    self.source_name,
+                    normalized_method,
+                    type(exc).__name__,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
+                continue
             logger.info(
                 "Response source=%s method=%s status=%s url=%s",
                 self.source_name,
